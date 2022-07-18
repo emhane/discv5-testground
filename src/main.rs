@@ -1,5 +1,6 @@
 mod eclipse;
 mod find_node;
+mod topics;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -69,12 +70,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run test case
     // //////////////////////////////////////////////////////////////
     match client.run_parameters().test_case.clone().as_str() {
-        "find-node" => find_node::find_node(client.clone()).await?,
+        "find-node" => find_node::find_node(client).await?,
         "eclipse-attack-monopolizing-by-incoming-nodes" => {
             eclipse::MonopolizingByIncomingNodes::new()
                 .run(client.clone())
                 .await?
         }
+        "reg-topic" => topics::reg_topic(client).await?,
         _ => unreachable!(),
     };
 

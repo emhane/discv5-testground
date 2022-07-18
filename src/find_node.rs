@@ -151,7 +151,7 @@ pub(super) async fn find_node(client: Client) -> Result<(), Box<dyn std::error::
 
             if let Some(enr) = discv5.find_enr(&target.enr.node_id()) {
                 info!(
-                    "The target is already exists in the routing table. ENR: {:?}",
+                    "The target already exists in the routing table. ENR: {:?}",
                     enr
                 );
             } else {
