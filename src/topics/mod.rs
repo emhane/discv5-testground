@@ -11,7 +11,10 @@ use testground::{
     WriteQuery,
     client::Client
 };
-use tokio::task;
+use tokio::{
+    time::{sleep, Duration},
+    task,
+};
 use tracing::{debug, info, error};
 
 const STATE_COMPLETED_TO_COLLECT_INSTANCE_INFORMATION: &str =
@@ -109,13 +112,20 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     let mut failed = false;
 
     if instance_info.is_registrant {
-        let _ = discv5.register_topic("lighthouse".into()).await.map_err(|e| {
+        let _ = discv5.register_topic("lighthouse").await.map_err(|e| {
             failed = true;
             error!("Failed to register topic. Error: {}", e);
         });
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+    if !instance_info.is_registrant {
+        // Sleep for the duration of a registration window plus 15 seconds to sync all nodes.
+        sleep(Duration::from_secs(25)).await;
+        let ads = discv5.ads("lighthouse").await.map_err(|e| error!("Failed to register topic. Error: {}", e)).unwrap();
+        if ads.is_empty() {
+            failed = true;
+        }
+    }
 
     // //////////////////////////////////////////////////////////////
     // Record metrics

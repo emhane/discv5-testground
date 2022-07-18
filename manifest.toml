@@ -34,7 +34,8 @@ instances = { min = 20, max = 20, default = 20 }
 # Register topic
 [[testcases]]
 name = "reg-topic"
-instances = { min = 3, max = 100, default = 3 }
+# The max number of test instances is dependent on the max number of nodes per kbucket configured in discv5
+instances = { min = 3, max = 17, default = 3 }
 
   [testcases.params]
   latency = { type = "int", desc = "Latency between peers.", unit = "ms", default = 100 }

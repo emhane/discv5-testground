@@ -404,7 +404,7 @@ dependencies = [
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.14"
-source = "git+https://github.com/emhane/discv5.git?branch=tickets-v2#f19d2bb17a3fc5cb2d0c7081395d2716000bccc5"
+source = "git+https://github.com/emhane/discv5.git?branch=tickets-v2#02ed526ab3b6386890173aeb8d6641db64dce755"
 dependencies = [
  "aes",
  "aes-gcm",
