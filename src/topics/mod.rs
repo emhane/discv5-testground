@@ -113,33 +113,43 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
             error!("Failed to register topic. Error: {}", e);
         });
 
+        let mut table_entries_iter = discv5
+        .table_entries_id_topic("lighthouse")
+        .await
+        .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
+        .unwrap().into_iter();
+
         for (distance, bucket) in discv5
             .reg_attempts("lighthouse")
             .await
             .map_err(|e| error!("Failed to get registration attempts. Error {}", e))
             .unwrap()
         {
-            let mut table_entries_id_topic = discv5
-                .table_entries_id_topic("lighthouse")
-                .await
-                .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
-                .unwrap()
-                .into_iter();
-
             info!("At distance {}:", distance);
             info!("{} registration attempts", bucket.reg_attempts.len());
-            let (kbucket_index, peer_ids) = table_entries_id_topic.next().unwrap();
+            let (kbucket_index, peer_ids) = table_entries_iter.next().unwrap();
             info!(
                 "{} peers in topic's kbuckets at distance {}",
                 peer_ids.len(),
                 kbucket_index
             );
         }
+
+        sleep(Duration::from_secs(25)).await;
+        for (distance, bucket) in discv5
+        .reg_attempts("lighthouse")
+        .await
+        .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
+        .unwrap() {
+            info!("At distance {}:", distance);
+            info!("{} registration attempts:", bucket.reg_attempts.len());
+            bucket.reg_attempts.iter().for_each(|(node_id, reg_state)| info!("Registration of node id {} in state {:?}", node_id, reg_state));
+        }
     }
 
     if !instance_info.is_registrant {
-        // Sleep for the duration of a registration window plus 15 seconds to sync all nodes.
-        sleep(Duration::from_secs(25)).await;
+        // Sleep for the duration of a registration window plus 15 seconds.
+        sleep(Duration::from_secs(60)).await;
         let ads = discv5
             .ads("lighthouse")
             .await
@@ -178,10 +188,6 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     // Record result of this test
     // //////////////////////////////////////////////////////////////
     if failed {
-        info!(
-            "Failed. {} entries in local routing table.",
-            discv5.table_entries_id().len()
-        );
         client
             .record_failure("Failures have happened, please check error logs for details.")
             .await?;
