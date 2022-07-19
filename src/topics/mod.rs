@@ -8,7 +8,10 @@ use discv5::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, net::SocketAddr};
 use testground::{client::Client, WriteQuery};
-use tokio::task;
+use tokio::{
+    task,
+    time::{Duration, Instant},
+};
 use tracing::{debug, error, info};
 
 const STATE_COMPLETED_TO_COLLECT_INSTANCE_INFORMATION: &str =
@@ -89,8 +92,16 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
         )
         .await?;
 
-    for i in other_instances.iter() {
-        discv5.add_enr(i.enr.clone())?;
+    let mut expected_reg_confs = 0;
+
+    if instance_info.is_registrant {
+        for i in other_instances.iter() {
+            if let Err(e) = discv5.add_enr(i.enr.clone()) {
+                error!("Failed to insert enr in registrants local routing table. Ignoring instance. Error {}", e);
+            } else {
+                expected_reg_confs += 1;
+            }
+        }
     }
 
     client
@@ -104,6 +115,9 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     // Register topic
     // //////////////////////////////////////////////////////////////
     let mut failed = false;
+    let start = Instant::now();
+    // The timeout is the duration of the registration window (10 seconds) plus 5 seconds.
+    let time_out = Duration::from_secs(15);
 
     if instance_info.is_registrant {
         let mut reg_confs = 0;
@@ -121,7 +135,7 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
             .into_iter();
 
         let mut reg_attempts = BTreeMap::new();
-        while reg_confs < run_parameters.test_instance_count - 1 {
+        while reg_confs < expected_reg_confs && start.elapsed() <= time_out {
             reg_attempts = discv5
                 .reg_attempts("lighthouse")
                 .await
@@ -139,6 +153,12 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
                     });
             }
         }
+
+        if start.elapsed() > time_out {
+            error!("Registrant node timed out");
+            failed = true;
+        }
+
         for (distance, bucket) in reg_attempts {
             if !bucket.reg_attempts.is_empty() {
                 info!("At distance {}:", distance);
@@ -161,7 +181,7 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
 
     if !instance_info.is_registrant {
         let mut ads = Vec::new();
-        while ads.is_empty() {
+        while ads.is_empty() && start.elapsed() <= time_out {
             ads = discv5
                 .ads("lighthouse")
                 .await
@@ -169,7 +189,11 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
                 .unwrap();
         }
 
-        info!("Ads active on this node: {:?}", ads);
+        if start.elapsed() > time_out {
+            error!("Non-registrant node timed out");
+        }
+
+        info!("{} ads active on this node", ads.len());
     }
 
     // //////////////////////////////////////////////////////////////
