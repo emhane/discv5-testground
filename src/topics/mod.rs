@@ -119,17 +119,21 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
             .map_err(|e| error!("Failed to get registration attempts. Error {}", e))
             .unwrap()
         {
-
-        let table_entries = discv5.table_entries_id_topic("lighthouse").await.unwrap().into_iter();
+            let mut table_entries_id_topic = discv5
+                .table_entries_id_topic("lighthouse")
+                .await
+                .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
+                .unwrap()
+                .into_iter();
 
             info!("At distance {}:", distance);
             info!("{} registration attempts", bucket.reg_attempts.len());
-            /*let (kbucket_index, peer_ids) = table_entries_id_topic.next();
+            let (kbucket_index, peer_ids) = table_entries_id_topic.next().unwrap();
             info!(
                 "{} peers in topic's kbuckets at distance {}",
                 peer_ids.len(),
                 kbucket_index
-            );*/
+            );
         }
     }
 
