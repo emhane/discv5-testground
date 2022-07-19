@@ -2,15 +2,13 @@ use crate::publish_and_collect;
 use chrono::Local;
 use discv5::{
     enr::{CombinedKey, EnrBuilder},
+    service::RegistrationState,
     Discv5, Discv5Config, Enr,
 };
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::{collections::BTreeMap, net::SocketAddr};
 use testground::{client::Client, WriteQuery};
-use tokio::{
-    task,
-    time::{sleep, Duration},
-};
+use tokio::task;
 use tracing::{debug, error, info};
 
 const STATE_COMPLETED_TO_COLLECT_INSTANCE_INFORMATION: &str =
@@ -108,56 +106,70 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     let mut failed = false;
 
     if instance_info.is_registrant {
+        let mut reg_confs = 0;
+
         let _ = discv5.register_topic("lighthouse").await.map_err(|e| {
             failed = true;
             error!("Failed to register topic. Error: {}", e);
         });
 
         let mut table_entries_iter = discv5
-        .table_entries_id_topic("lighthouse")
-        .await
-        .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
-        .unwrap().into_iter();
-
-        for (distance, bucket) in discv5
-            .reg_attempts("lighthouse")
+            .table_entries_id_topic("lighthouse")
             .await
-            .map_err(|e| error!("Failed to get registration attempts. Error {}", e))
+            .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
             .unwrap()
-        {
-            info!("At distance {}:", distance);
-            info!("{} registration attempts", bucket.reg_attempts.len());
-            let (kbucket_index, peer_ids) = table_entries_iter.next().unwrap();
-            info!(
-                "{} peers in topic's kbuckets at distance {}",
-                peer_ids.len(),
-                kbucket_index
-            );
-        }
+            .into_iter();
 
-        sleep(Duration::from_secs(25)).await;
-        for (distance, bucket) in discv5
-        .reg_attempts("lighthouse")
-        .await
-        .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
-        .unwrap() {
-            info!("At distance {}:", distance);
-            info!("{} registration attempts:", bucket.reg_attempts.len());
-            bucket.reg_attempts.iter().for_each(|(node_id, reg_state)| info!("Registration of node id {} in state {:?}", node_id, reg_state));
+        let mut reg_attempts = BTreeMap::new();
+        while reg_confs < run_parameters.test_instance_count - 1 {
+            reg_attempts = discv5
+                .reg_attempts("lighthouse")
+                .await
+                .map_err(|e| error!("Failed to get registration attempts. Error {}", e))
+                .unwrap();
+
+            for (_distance, bucket) in reg_attempts.iter() {
+                bucket
+                    .reg_attempts
+                    .iter()
+                    .for_each(|(_node_id, reg_state)| {
+                        if let RegistrationState::Confirmed(_) = reg_state {
+                            reg_confs += 1
+                        }
+                    });
+            }
+        }
+        for (distance, bucket) in reg_attempts {
+            if !bucket.reg_attempts.is_empty() {
+                info!("At distance {}:", distance);
+                info!("{} registration attempts", bucket.reg_attempts.len());
+                let (kbucket_index, peer_ids) = table_entries_iter.next().unwrap();
+                info!(
+                    "{} peers in topic's kbuckets at distance {}",
+                    peer_ids.len(),
+                    kbucket_index
+                );
+                bucket.reg_attempts.iter().for_each(|(node_id, reg_state)| {
+                    info!(
+                        "Registration of node id {} in state {:?}",
+                        node_id, reg_state
+                    )
+                });
+            }
         }
     }
 
     if !instance_info.is_registrant {
-        // Sleep for the duration of a registration window plus 15 seconds.
-        sleep(Duration::from_secs(60)).await;
-        let ads = discv5
-            .ads("lighthouse")
-            .await
-            .map_err(|e| error!("Failed to register topic. Error: {}", e))
-            .unwrap();
-        if ads.is_empty() {
-            failed = true;
+        let mut ads = Vec::new();
+        while ads.is_empty() {
+            ads = discv5
+                .ads("lighthouse")
+                .await
+                .map_err(|e| error!("Failed to register topic. Error: {}", e))
+                .unwrap();
         }
+
+        info!("Ads active on this node: {:?}", ads);
     }
 
     // //////////////////////////////////////////////////////////////
