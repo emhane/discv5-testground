@@ -1,21 +1,17 @@
 use crate::publish_and_collect;
-use discv5::{
-    Enr,
-    enr::{CombinedKey, EnrBuilder},
-    Discv5, Discv5Config,
-};
 use chrono::Local;
+use discv5::{
+    enr::{CombinedKey, EnrBuilder},
+    Discv5, Discv5Config, Enr,
+};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use testground::{
-    WriteQuery,
-    client::Client
-};
+use testground::{client::Client, WriteQuery};
 use tokio::{
-    time::{sleep, Duration},
     task,
+    time::{sleep, Duration},
 };
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 const STATE_COMPLETED_TO_COLLECT_INSTANCE_INFORMATION: &str =
     "state_completed_to_collect_instance_information";
@@ -116,12 +112,35 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
             failed = true;
             error!("Failed to register topic. Error: {}", e);
         });
+
+        for (distance, bucket) in discv5
+            .reg_attempts("lighthouse")
+            .await
+            .map_err(|e| error!("Failed to get registration attempts. Error {}", e))
+            .unwrap()
+        {
+
+        let table_entries = discv5.table_entries_id_topic("lighthouse").await.unwrap().into_iter();
+
+            info!("At distance {}:", distance);
+            info!("{} registration attempts", bucket.reg_attempts.len());
+            /*let (kbucket_index, peer_ids) = table_entries_id_topic.next();
+            info!(
+                "{} peers in topic's kbuckets at distance {}",
+                peer_ids.len(),
+                kbucket_index
+            );*/
+        }
     }
 
     if !instance_info.is_registrant {
         // Sleep for the duration of a registration window plus 15 seconds to sync all nodes.
         sleep(Duration::from_secs(25)).await;
-        let ads = discv5.ads("lighthouse").await.map_err(|e| error!("Failed to register topic. Error: {}", e)).unwrap();
+        let ads = discv5
+            .ads("lighthouse")
+            .await
+            .map_err(|e| error!("Failed to register topic. Error: {}", e))
+            .unwrap();
         if ads.is_empty() {
             failed = true;
         }
@@ -145,16 +164,20 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     client.record_metric(write_query).await?;
 
     client
-    .signal_and_wait(
-        STATE_COMPLETED_TO_REGISTER_TOPIC,
-        run_parameters.test_instance_count,
-    )
-    .await?;
+        .signal_and_wait(
+            STATE_COMPLETED_TO_REGISTER_TOPIC,
+            run_parameters.test_instance_count,
+        )
+        .await?;
 
     // //////////////////////////////////////////////////////////////
     // Record result of this test
     // //////////////////////////////////////////////////////////////
     if failed {
+        info!(
+            "Failed. {} entries in local routing table.",
+            discv5.table_entries_id().len()
+        );
         client
             .record_failure("Failures have happened, please check error logs for details.")
             .await?;

@@ -34,7 +34,8 @@ instances = { min = 20, max = 20, default = 20 }
 # Register topic
 [[testcases]]
 name = "reg-topic"
-# The max number of test instances is dependent on the max number of nodes per kbucket configured in discv5
+# The max number of test instances is dependent on the max number of nodes per kbucket configured in discv5,
+# unless node ids are deterministically engineered.
 instances = { min = 3, max = 17, default = 3 }
 
   [testcases.params]
