@@ -6,18 +6,21 @@ use discv5::{
     Discv5, Discv5Config, Enr,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, net::SocketAddr};
-use testground::{client::Client, WriteQuery};
-use tokio::{
-    task,
-    time::{Duration, Instant},
+use std::{
+    collections::{BTreeMap, HashSet},
+    net::SocketAddr,
 };
+use testground::{client::Client, WriteQuery};
+use tokio::task;
+use tokio_stream::StreamExt;
 use tracing::{debug, error, info};
 
 const STATE_COMPLETED_TO_COLLECT_INSTANCE_INFORMATION: &str =
     "state_completed_to_collect_instance_information";
 const STATE_COMPLETED_TO_BUILD_TOPOLOGY: &str = "state_completed_to_build_topology";
-const STATE_COMPLETED_TO_REGISTER_TOPIC: &str = "state_completed_to_register_topic";
+const STATE_DONE: &str = "state_completed_to_register_topic";
+
+const TOPIC: &str = "included_in_registrant_local_routing_table";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct InstanceInfo {
@@ -92,14 +95,32 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
         )
         .await?;
 
+    // An entry that is successfully added to the registrants local
+    // routing table is expected to respond with a REGCONFIRMATION.
     let mut expected_reg_confs = 0;
+    let mut count_ads = false;
 
     if instance_info.is_registrant {
         for i in other_instances.iter() {
+            let sync_topic = format!("{}_{}", TOPIC, i.seq);
             if let Err(e) = discv5.add_enr(i.enr.clone()) {
-                error!("Failed to insert enr in registrants local routing table. Ignoring instance. Error {}", e);
+                error!("Failed to insert enr with node id {} in registrant's local routing table. Ignoring instance. Error {}", i.enr.node_id(), e);
+                client.publish(sync_topic, "").await?;
             } else {
                 expected_reg_confs += 1;
+                client.publish(sync_topic, TOPIC).await?;
+            }
+        }
+    } else {
+        let sync_topic = format!("{}_{}", TOPIC, instance_info.seq);
+        let mut stream = client.subscribe(sync_topic).await;
+        if let Some(Ok(topic)) = stream.next().await {
+            if topic == TOPIC {
+                info!(
+                    "This test instance with node id {} should count ads",
+                    instance_info.enr.node_id()
+                );
+                count_ads = true;
             }
         }
     }
@@ -115,27 +136,18 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     // Register topic
     // //////////////////////////////////////////////////////////////
     let mut failed = false;
-    let start = Instant::now();
-    // The timeout is the duration of the registration window (10 seconds) plus 5 seconds.
-    let time_out = Duration::from_secs(15);
+    // The number of received REGCONFIRMATIONs is compared to the
+    // number of expected REGCONFIRMATIONs.
+    let mut reg_confs = HashSet::new();
 
     if instance_info.is_registrant {
-        let mut reg_confs = 0;
-
         let _ = discv5.register_topic("lighthouse").await.map_err(|e| {
             failed = true;
             error!("Failed to register topic. Error: {}", e);
         });
 
-        let mut table_entries_iter = discv5
-            .table_entries_id_topic("lighthouse")
-            .await
-            .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
-            .unwrap()
-            .into_iter();
-
         let mut reg_attempts = BTreeMap::new();
-        while reg_confs < expected_reg_confs && start.elapsed() <= time_out {
+        while reg_confs.len() < expected_reg_confs {
             reg_attempts = discv5
                 .reg_attempts("lighthouse")
                 .await
@@ -143,27 +155,29 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
                 .unwrap();
 
             for (_distance, bucket) in reg_attempts.iter() {
-                bucket
-                    .reg_attempts
-                    .iter()
-                    .for_each(|(_node_id, reg_state)| {
-                        if let RegistrationState::Confirmed(_) = reg_state {
-                            reg_confs += 1
-                        }
-                    });
+                bucket.reg_attempts.iter().for_each(|(node_id, reg_state)| {
+                    if let RegistrationState::Confirmed(_) = reg_state {
+                        reg_confs.insert(node_id.clone());
+                    }
+                });
             }
         }
 
-        if start.elapsed() > time_out {
-            error!("Registrant node timed out");
-            failed = true;
-        }
+        let table_entries = discv5
+            .table_entries_id_topic("lighthouse")
+            .await
+            .map_err(|e| error!("Failed to get table entries' ids for topic. Error {}", e))
+            .unwrap();
+
+        info!("BTreeMap {:?}", table_entries);
+
+        let mut table_entries_iter = table_entries.into_iter();
 
         for (distance, bucket) in reg_attempts {
+            let (kbucket_index, peer_ids) = table_entries_iter.next().unwrap();
             if !bucket.reg_attempts.is_empty() {
                 info!("At distance {}:", distance);
                 info!("{} registration attempts", bucket.reg_attempts.len());
-                let (kbucket_index, peer_ids) = table_entries_iter.next().unwrap();
                 info!(
                     "{} peers in topic's kbuckets at distance {}",
                     peer_ids.len(),
@@ -179,9 +193,9 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
         }
     }
 
-    if !instance_info.is_registrant {
+    if !instance_info.is_registrant && count_ads {
         let mut ads = Vec::new();
-        while ads.is_empty() && start.elapsed() <= time_out {
+        while ads.is_empty() {
             ads = discv5
                 .ads("lighthouse")
                 .await
@@ -189,9 +203,10 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
                 .unwrap();
         }
 
-        if start.elapsed() > time_out {
+        /*if start.elapsed() > time_out {
             error!("Non-registrant node timed out");
-        }
+            failed = true;
+        }*/
 
         info!("{} ads active on this node", ads.len());
     }
@@ -199,35 +214,52 @@ pub(super) async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::
     // //////////////////////////////////////////////////////////////
     // Record metrics
     // //////////////////////////////////////////////////////////////
-    let metrics = discv5.metrics();
-    let write_query = WriteQuery::new(
-        Local::now().into(),
-        format!(
-            "discv5-testground_{}_{}",
-            run_parameters.test_case, run_parameters.test_run
-        ),
-    )
-    .add_field("topics_to_publish", metrics.topics_to_publish as u64)
-    .add_field("hosted_ads", metrics.hosted_ads as u64)
-    .add_field("active_regtopic_req", metrics.active_regtopic_req as u64);
-
-    client.record_metric(write_query).await?;
-
-    client
-        .signal_and_wait(
-            STATE_COMPLETED_TO_REGISTER_TOPIC,
-            run_parameters.test_instance_count,
+    if instance_info.is_registrant || count_ads {
+        let metrics = discv5.metrics();
+        let write_query = WriteQuery::new(
+            Local::now().into(),
+            format!(
+                "discv5-testground_{}_{}",
+                run_parameters.test_case, run_parameters.test_run
+            ),
         )
+        .add_field("topics_to_publish", metrics.topics_to_publish as u64)
+        .add_field("hosted_ads", metrics.hosted_ads as u64)
+        .add_field("active_regtopic_req", metrics.active_regtopic_req as u64);
+
+        client.record_metric(write_query).await?;
+    }
+    client
+        .signal_and_wait(STATE_DONE, run_parameters.test_instance_count)
         .await?;
 
     // //////////////////////////////////////////////////////////////
     // Record result of this test
     // //////////////////////////////////////////////////////////////
     if failed {
-        client
-            .record_failure("Failures have happened, please check error logs for details.")
-            .await?;
+        if !instance_info.is_registrant {
+            client
+                .record_failure(format!("Count ads {}", count_ads))
+                .await?;
+        } else {
+            client
+                .record_failure(format!(
+                    "Registrant failed! Received {}/{} expected reg confs",
+                    reg_confs.len(),
+                    expected_reg_confs
+                ))
+                .await?;
+        }
     } else {
+        if instance_info.is_registrant {
+            info!(
+                "Successfully registered ads at {}/{} nodes",
+                reg_confs.len(),
+                expected_reg_confs
+            );
+        } else {
+            info!("Count ads {}", count_ads);
+        }
         client.record_success().await?;
     }
 
