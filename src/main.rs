@@ -76,7 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .run(client.clone())
                 .await?
         }
-        "reg-topic" => topics::reg_topic(client).await?,
+        "reg-topic" => topics::reg_topic::reg_topic(client).await?,
+        "topic-query" => topics::topic_query::topic_query(client).await?,
         _ => unreachable!(),
     };
 

@@ -38,3 +38,11 @@ instances = { min = 3, max = 1000, default = 3 }
 
   [testcases.params]
   latency = { type = "int", desc = "Latency between peers.", unit = "ms", default = 100 }
+
+# Topic query
+[[testcases]]
+name = "topic-query"
+instances = { min = 3, max = 18, default = 3 }
+
+  [testcases.params]
+  latency = { type = "int", desc = "Latency between peers.", unit = "ms", default = 100 }
