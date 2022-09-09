@@ -130,8 +130,8 @@ pub async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::Error>>
     // Register topic
     // //////////////////////////////////////////////////////////////
     let mut failed = false;
-    // The number of received TICKETs with 0 wait-time (register 
-    // confirmations) is compared to the number of expected TICKETs 
+    // The number of received TICKETs with 0 wait-time (register
+    // confirmations) is compared to the number of expected TICKETs
     // with 0 wait-time.
     let mut reg_confs = HashSet::new();
 
@@ -224,6 +224,7 @@ pub async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::Error>>
 
         client.record_metric(write_query).await?;
     }
+    
     client
         .signal_and_wait(STATE_DONE, run_parameters.test_instance_count)
         .await?;
