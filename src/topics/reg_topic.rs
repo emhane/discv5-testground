@@ -89,7 +89,8 @@ pub async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::Error>>
     // //////////////////////////////////////////////////////////////
 
     // An entry that is successfully added to the registrants local
-    // routing table is expected to respond with a REGCONFIRMATION.
+    // routing table is expected to respond with a TICKET with wait
+    // time being 0.
     let mut expected_reg_confs = 0;
     let mut count_ads = false;
 
@@ -129,8 +130,9 @@ pub async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::Error>>
     // Register topic
     // //////////////////////////////////////////////////////////////
     let mut failed = false;
-    // The number of received REGCONFIRMATIONs is compared to the
-    // number of expected REGCONFIRMATIONs.
+    // The number of received TICKETs with 0 wait-time (register 
+    // confirmations) is compared to the number of expected TICKETs 
+    // with 0 wait-time.
     let mut reg_confs = HashSet::new();
 
     if instance_info.is_registrant {

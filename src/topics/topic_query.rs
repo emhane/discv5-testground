@@ -2,7 +2,7 @@ use super::InstanceInfo as IInfo;
 use super::*;
 
 const SEQ_REGISTRANT: u64 = 1;
-const SEQ_QUERENT: u64 = 2;
+const SEQ_INQUIRER: u64 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct InstanceInfo {
@@ -10,7 +10,7 @@ struct InstanceInfo {
     seq: u64,
     enr: Enr,
     is_registrant: bool,
-    is_querent: bool,
+    is_inquirer: bool,
 }
 
 impl IInfo for InstanceInfo {
@@ -30,13 +30,13 @@ impl InstanceInfo {
         // NOTE: For now, #1 is the registrant node.
         let is_registrant = seq == SEQ_REGISTRANT;
         // NOTE: For now, #2 is the registrant node.
-        let is_querent = seq == SEQ_QUERENT;
+        let is_inquirer = seq == SEQ_INQUIRER;
 
         Ok(InstanceInfo {
             seq,
             enr,
             is_registrant,
-            is_querent,
+            is_inquirer,
         })
     }
 }
@@ -94,13 +94,13 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     // Topology
     // //////////////////////////////////////////////////////////////
 
-    if instance_info.is_registrant || instance_info.is_querent {
+    if instance_info.is_registrant || instance_info.is_inquirer {
         for i in other_instances {
-            if instance_info.is_registrant && !i.seq() == SEQ_QUERENT {
+            if instance_info.is_registrant && !i.seq() == SEQ_INQUIRER {
                 if let Err(e) = discv5.add_enr(i.enr().clone()) {
                     error!("Failed to insert enr with node id {} in registrant's local routing table. Ignoring instance. Error {}", i.enr().node_id(), e);
                 }
-            } else if instance_info.is_querent && i.seq() == SEQ_REGISTRANT {
+            } else if instance_info.is_inquirer && i.seq() == SEQ_REGISTRANT {
                 if let Err(e) = discv5.add_enr(i.enr().clone()) {
                     error!("Failed to insert enr with node id {} in querent's local routing table. Ignoring instance. Error {}", i.enr().node_id(), e);
                 }
