@@ -84,7 +84,9 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     debug!("instance_info: {:?}", instance_info);
 
     let other_instances = collect_other_instance_info(&client, &instance_info).await?;
-    let other_instances_count = collect_other_instance_info(&client, &instance_info).await?.count();
+    let other_instances_count = collect_other_instance_info(&client, &instance_info)
+        .await?
+        .count();
 
     client
         .signal_and_wait(
@@ -110,11 +112,11 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     }
 
     client
-    .signal_and_wait(
-        STATE_COMPLETED_TO_BUILD_TOPOLOGY,
-        run_parameters.test_instance_count,
-    )
-    .await?;
+        .signal_and_wait(
+            STATE_COMPLETED_TO_BUILD_TOPOLOGY,
+            run_parameters.test_instance_count,
+        )
+        .await?;
 
     // //////////////////////////////////////////////////////////////
     // Register ads
@@ -132,11 +134,11 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     }
 
     client
-    .signal_and_wait(
-        STATE_COMPLETED_TO_REGISTER_TOPIC,
-        run_parameters.test_instance_count,
-    )
-    .await?;
+        .signal_and_wait(
+            STATE_COMPLETED_TO_REGISTER_TOPIC,
+            run_parameters.test_instance_count,
+        )
+        .await?;
 
     // //////////////////////////////////////////////////////////////
     // Topic Query
@@ -146,7 +148,7 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     let mut ads_len = 0;
 
     if instance_info.is_inquirer {
-        match discv5.topic_query_req("lighthouse").await {
+        match discv5.topic_query("lighthouse").await {
             Ok(ads) => {
                 ads_len = ads.len();
                 if ads_len != other_instances_count {
@@ -161,8 +163,8 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     }
 
     client
-    .signal_and_wait(STATE_DONE, run_parameters.test_instance_count)
-    .await?;
+        .signal_and_wait(STATE_DONE, run_parameters.test_instance_count)
+        .await?;
 
     // //////////////////////////////////////////////////////////////
     // Record result of this test
@@ -170,15 +172,17 @@ pub async fn topic_query(client: Client) -> Result<(), Box<dyn std::error::Error
     if failed {
         if instance_info.is_inquirer {
             client
-            .record_failure(format!("Only obtained {}/{} ads", ads_len, other_instances_count))
-            .await?;
+                .record_failure(format!(
+                    "Only obtained {}/{} ads",
+                    ads_len, other_instances_count
+                ))
+                .await?;
         }
     } else {
         if instance_info.is_inquirer {
             info!(
                 "Successfully obtained {}/{} ads",
-                ads_len,
-                other_instances_count
+                ads_len, other_instances_count
             );
         }
         client.record_success().await?;

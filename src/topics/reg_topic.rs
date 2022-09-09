@@ -152,7 +152,7 @@ pub async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::Error>>
             for (_distance, bucket) in reg_attempts.iter() {
                 bucket.reg_attempts.iter().for_each(|(node_id, reg_state)| {
                     if let RegistrationState::Confirmed(_) = reg_state {
-                        reg_confs.insert(node_id.clone());
+                        reg_confs.insert(*node_id);
                     }
                 });
             }
@@ -224,7 +224,7 @@ pub async fn reg_topic(client: Client) -> Result<(), Box<dyn std::error::Error>>
 
         client.record_metric(write_query).await?;
     }
-    
+
     client
         .signal_and_wait(STATE_DONE, run_parameters.test_instance_count)
         .await?;

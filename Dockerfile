@@ -1,6 +1,8 @@
 FROM rust:1.62-bullseye as builder
 WORKDIR /usr/src/test-plan
 
+RUN apt-get update -y && apt-get install protobuf-compiler -y
+
 # Cache dependencies between test runs,
 # See https://blog.mgattozzi.dev/caching-rust-docker-builds/
 # And https://github.com/rust-lang/cargo/issues/2644
